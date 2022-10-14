@@ -1,5 +1,6 @@
 import pygame
 import random
+import time
 #from queue import Queue
 
 pygame.init()
@@ -12,6 +13,13 @@ NUM_COLOURS    = {1: "black", 2: "blue", 3: "green", 4:"red", 5: "purple", 6: "o
 RECT_COLOUR    = (110, 110, 110)
 CLICK_COLOUR   = (200, 200, 200)
 FLAG_COLOUR    = "red"
+MINE_COLOUR    = "black"
+LOST_FONT      = pygame.font.SysFont('comicsans', 100)
+LOST_COLOUR    = "orange"
+WON_FONT       = pygame.font.SysFont('comicsans', 100)
+WON_COLOUR     = "green"
+TIME_FONT      = pygame.font.SysFont('comicsans', 30)
+FLAG_FONT      = pygame.font.SysFont('comicsans', 26)
 
 #Make a window for the game
 WIN = pygame.display.set_mode((WIDTH, HEIGHT)) 
@@ -70,10 +78,27 @@ def create_mine_field(rows, cols, mines):
     
     return field
 
+# player lost outcome
+def draw_lost(win, text_val):
+    text = LOST_FONT.render(text_val, 1, LOST_COLOUR)
+    win.blit(text, (WIDTH/2 - text.get_width()/2, HEIGHT/2 - text.get_height()/2))
+    pygame.display.update()
+
+# player lost outcome
+def draw_won(win, text_val):
+    text = WON_FONT.render(text_val, 1, WON_COLOUR)
+    win.blit(text, (WIDTH/2 - text.get_width()/2, HEIGHT/2 - text.get_height()/2))
+    pygame.display.update()
 
 #draw window
-def draw(win, field, cover_field):
+def draw(win, field, cover_field, current_time, flag_count):
     win.fill(BG_COLOUR)
+
+    time_text = TIME_FONT.render(f"Time: {round(current_time)} s", 1, "black")
+    win.blit(time_text, (10, HEIGHT - time_text.get_height()))
+
+    flag_text = FLAG_FONT.render(f"Flag counter: {flag_count} of {N_FLAGS} (right click)", 1, "black")
+    win.blit(flag_text, (10, HEIGHT - time_text.get_height() * 2))
 
     for i, row in enumerate(field):
         y = SIZE * i
@@ -81,6 +106,7 @@ def draw(win, field, cover_field):
             x = SIZE * j
 
             is_covered = cover_field[i][j] == 0
+            is_mine = value == -1
 
             # draw flags
             if cover_field[i][j] == -2:
@@ -96,13 +122,12 @@ def draw(win, field, cover_field):
             else:
                 pygame.draw.rect(win, CLICK_COLOUR, (x, y, SIZE, SIZE))
                 pygame.draw.rect(win, "black", (x, y, SIZE, SIZE), 2)
+                if is_mine:
+                    pygame.draw.circle(win, MINE_COLOUR, (x + SIZE/2, y + SIZE/2), (SIZE/2) - 3)
 
             # label number
             if value > 0:
                 text = NUM_FONT.render(str(value), 1, NUM_COLOURS[value])
-                win.blit(text, (x + SIZE/2 - text.get_width()/2, y + SIZE/2 - text.get_height()/2 ))
-            if value < 0:
-                text = NUM_FONT.render("X", 1, "red")
                 win.blit(text, (x + SIZE/2 - text.get_width()/2, y + SIZE/2 - text.get_height()/2 ))
 
     pygame.display.update()
@@ -130,6 +155,7 @@ def uncover_from_position(row, col, cover_field, field, n_flags, flags):
             neighbours = get_neighbours(*current, ROWS, COLS)
             for r, c in neighbours:
                 if (r, c) in visited: continue
+
                 if cover_field[r][c] == -2: 
                     n_flags += 1
                     flags.remove((r,c))
@@ -138,17 +164,33 @@ def uncover_from_position(row, col, cover_field, field, n_flags, flags):
                 if (field[r][c] == 0):
                     q.append((r,c))
                 visited.add((r,c))
+
     return cover_field, n_flags
+
+def reset_game():
+    field       = create_mine_field(ROWS, COLS, MINES)
+    cover_field = [[0 for _ in range(COLS)] for _ in range(ROWS)]
+    flags       = set()
+    flag_count  = N_FLAGS
+    lost        = False
+    won         = False
+
+    return field, cover_field, flags, flag_count, lost, won
 
 # Main loop
 def main():
     run = True
-    field = create_mine_field(ROWS, COLS, MINES)
-    cover_field = [[0 for _ in range(COLS)] for _ in range(ROWS)]
-    flags = set()
-    flag_count = N_FLAGS
+    
+    field, cover_field, flags, flag_count, lost, won = reset_game()
 
+    start_time = 0
+    clicked    = False
+    
     while run:
+        if start_time > 0:
+            current_time = time.time() - start_time
+        else:
+            current_time = 0
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
@@ -156,14 +198,25 @@ def main():
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 row, col = get_grid_pos(pygame.mouse.get_pos())
+                # make sure we aren't off grid
                 if row >= ROWS or col >= COLS:
                     continue
 
                 mouse_pressed =  pygame.mouse.get_pressed()
+                # left click
                 if mouse_pressed[0]:
+                    if not clicked: start_time = time.time()
+                    clicked = True
                     if cover_field[row][col] != -2:
                         cover_field, flag_count = uncover_from_position(row, col, cover_field, field, flag_count, flags)
+                        # check win and lose conditions
+                        if field[row][col] < 0:
+                            lost = True
+                        if (sum(sum(cover_field, [])) + (2 * (N_FLAGS - flag_count))) == (ROWS * COLS - MINES): 
+                            won = True
+                # right click
                 elif mouse_pressed[2]:
+                    # place flag
                     if (row, col) in flags:
                         cover_field[row][col] = 0
                         flags.remove((row, col))
@@ -172,7 +225,18 @@ def main():
                         flags.add((row, col))
                         cover_field[row][col] = -2
                         flag_count -= 1
-        draw(WIN, field, cover_field)
+        draw(WIN, field, cover_field, current_time, flag_count)
+        
+        if lost:
+            draw_lost(WIN, "GAME OVER")
+            pygame.time.delay(5000)
+            # reset
+            field, cover_field, flags, flag_count, lost, won = reset_game()
+        if won:
+            draw_won(WIN, "YOU WON!")
+            pygame.time.delay(5000)
+            # reset
+            field, cover_field, flags, flag_count, lost, won = reset_game()
     
     pygame.quit()
 
