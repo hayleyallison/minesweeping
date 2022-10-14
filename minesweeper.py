@@ -26,8 +26,8 @@ WIN = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Minesweeper")
 
 # Game setup parameters
-ROWS, COLS = 10, 10
-MINES = 15
+ROWS, COLS = 20, 20
+MINES = 50
 SIZE  = WIDTH / ROWS
 N_FLAGS = MINES
 
